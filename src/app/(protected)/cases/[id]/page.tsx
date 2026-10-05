@@ -939,11 +939,14 @@ export default function CaseDetailPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">Assign To</label>
+            <label className="block text-xs font-medium text-slate-300 mb-1">
+              Assign To {role === 'employee' ? '(Locked to Case Owner)' : ''}
+            </label>
             <select
               value={newTaskAssignedTo}
               onChange={(e) => setNewTaskAssignedTo(e.target.value)}
-              className="w-full rounded-lg border border-slate-800 bg-slate-900/50 p-2.5 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+              disabled={role === 'employee'}
+              className="w-full rounded-lg border border-slate-800 bg-slate-900/50 p-2.5 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <option value="">Current Case Owner</option>
               {employees.map((emp) => (

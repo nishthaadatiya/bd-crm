@@ -87,8 +87,31 @@ export default function CasesPage() {
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-      if (search.trim()) {
-        query = query.or(`case_number.ilike.%${search.trim()}%,description.ilike.%${search.trim()}%`);
+      const term = search.trim();
+      if (term) {
+        const [custRes, bldRes] = await Promise.all([
+          supabase.from('customers').select('id').or(`full_name.ilike.%${term}%,phone.ilike.%${term}%`),
+          supabase.from('buildings').select('id').or(`name.ilike.%${term}%,code.ilike.%${term}%`),
+        ]);
+
+        const custIds = (custRes.data || []).map((c) => c.id);
+        const bldIds = (bldRes.data || []).map((b) => b.id);
+
+        const conditions: string[] = [
+          `case_number.ilike.%${term}%`,
+          `bank_name.ilike.%${term}%`,
+          `application_number.ilike.%${term}%`,
+          `description.ilike.%${term}%`,
+        ];
+
+        if (custIds.length > 0) {
+          conditions.push(`customer_id.in.(${custIds.join(',')})`);
+        }
+        if (bldIds.length > 0) {
+          conditions.push(`building_id.in.(${bldIds.join(',')})`);
+        }
+
+        query = query.or(conditions.join(','));
       }
 
       if (statusFilter !== 'all') {
@@ -190,7 +213,7 @@ export default function CasesPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
           <input
             type="text"
-            placeholder="Search by case number or description..."
+            placeholder="Search by case #, customer, phone, project, bank..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full rounded-lg border border-slate-800 bg-slate-900/50 py-2.5 pl-10 pr-4 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 transition-all"

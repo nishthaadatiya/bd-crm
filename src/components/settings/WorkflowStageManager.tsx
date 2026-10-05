@@ -371,12 +371,21 @@ export default function WorkflowStageManager() {
             </div>
           </div>
 
-          <Input
-            label="Automated Task Title"
-            value={requiredTaskTitle}
-            onChange={(e) => setRequiredTaskTitle(e.target.value)}
-            placeholder="e.g. Verify Customer ID Documents"
-          />
+          <div>
+            <label className="block text-xs font-medium text-slate-300 mb-1">
+              Required Automated Tasks (one per line)
+            </label>
+            <textarea
+              value={requiredTaskTitle}
+              onChange={(e) => setRequiredTaskTitle(e.target.value)}
+              placeholder="e.g.&#10;Collect Customer KYC Documents&#10;Verify Income & Bank Statements&#10;Initiate Property Valuation"
+              rows={3}
+              className="w-full rounded-lg border border-slate-800 bg-slate-900/50 p-2.5 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+            />
+            <p className="mt-1 text-[11px] text-slate-500">
+              Each line will be automatically created as a task and assigned when a case enters this stage.
+            </p>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>

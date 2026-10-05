@@ -114,33 +114,52 @@ export async function transitionCaseStage(
     },
   });
 
-  // 8. Auto-create task for the new stage
-  const taskTitle = targetStage.required_task_title || `Complete ${targetStage.name} stage for ${currentCase.case_number}`;
+  // 8. Auto-create configured task(s) for the new stage
+  const taskTitles = targetStage.required_task_title
+    ? targetStage.required_task_title
+        .split('\n')
+        .map((t) => t.trim())
+        .filter(Boolean)
+    : [`Complete ${targetStage.name} stage for ${currentCase.case_number}`];
 
-  const { data: taskData } = await supabase.from('tasks').insert({
-    case_id: caseId,
-    stage_id: targetStage.id,
-    title: taskTitle,
-    description: `Automated stage task for ${targetStage.name} (SLA: ${slaDays} days)`,
-    status: 'pending',
-    priority: currentCase.priority || 'medium',
-    assigned_to: finalAssignedTo,
-    due_date: stageDueDate.toISOString().split('T')[0],
-    created_by: userId,
-  }).select().single();
+  const createdTasks: { id: string; title: string }[] = [];
+  for (const title of taskTitles) {
+    const { data: taskData } = await supabase
+      .from('tasks')
+      .insert({
+        case_id: caseId,
+        stage_id: targetStage.id,
+        title,
+        description: `Automated stage task for ${targetStage.name} (SLA: ${slaDays} days)`,
+        status: 'pending',
+        priority: currentCase.priority || 'medium',
+        assigned_to: finalAssignedTo,
+        due_date: stageDueDate.toISOString().split('T')[0],
+        created_by: userId,
+      })
+      .select('id, title')
+      .single();
+
+    if (taskData) createdTasks.push(taskData);
+  }
 
   // 9. Notify the assigned employee (if different from actor)
   if (finalAssignedTo && finalAssignedTo !== userId) {
     const caseLink = `/cases/${caseId}`;
+    const taskSummary =
+      createdTasks.length === 1
+        ? `Task: "${createdTasks[0].title}"`
+        : `${createdTasks.length} tasks generated for ${targetStage.name}`;
+
     await sendNotification(
       supabase,
       finalAssignedTo,
       `Case ${currentCase.case_number} moved to ${targetStage.name}`,
-      `A new task has been assigned to you: "${taskTitle}"`,
+      `You have been assigned to case ${currentCase.case_number}. ${taskSummary}`,
       'info',
       caseLink,
       caseId,
-      (taskData as { id?: string } | null)?.id
+      createdTasks[0]?.id
     );
   }
 

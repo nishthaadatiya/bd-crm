@@ -319,36 +319,51 @@ export default function CaseForm({
             notes: 'Initial case creation',
           });
 
-          // Create initial task
-          const taskTitle =
-            selectedStage.required_task_title || `Initial task for ${selectedStage.name}`;
-          const { data: initialTask } = await supabase
-            .from('tasks')
-            .insert({
-              case_id: data.id,
-              stage_id: selectedStage.id,
-              title: taskTitle,
-              description: `Automated stage task for ${selectedStage.name}`,
-              status: 'pending',
-              priority: formData.priority || 'medium',
-              assigned_to: finalAssignedTo,
-              due_date: stageDueDate.split('T')[0],
-              created_by: user?.id,
-            })
-            .select()
-            .single();
+          // Create initial configured task(s)
+          const taskTitles = selectedStage.required_task_title
+            ? selectedStage.required_task_title
+                .split('\n')
+                .map((t) => t.trim())
+                .filter(Boolean)
+            : [`Initial task for ${selectedStage.name}`];
+
+          const createdTasks: { id: string; title: string }[] = [];
+          for (const title of taskTitles) {
+            const { data: initialTask } = await supabase
+              .from('tasks')
+              .insert({
+                case_id: data.id,
+                stage_id: selectedStage.id,
+                title,
+                description: `Automated stage task for ${selectedStage.name}`,
+                status: 'pending',
+                priority: formData.priority || 'medium',
+                assigned_to: finalAssignedTo,
+                due_date: stageDueDate.split('T')[0],
+                created_by: user?.id,
+              })
+              .select('id, title')
+              .single();
+
+            if (initialTask) createdTasks.push(initialTask);
+          }
 
           // Notify assigned employee
           if (finalAssignedTo && finalAssignedTo !== user?.id) {
+            const taskSummary =
+              createdTasks.length === 1
+                ? `Initial task: "${createdTasks[0].title}"`
+                : `${createdTasks.length} initial tasks assigned for ${selectedStage.name}`;
+
             await sendNotification(
               supabase,
               finalAssignedTo,
               `New case assigned: ${data.case_number}`,
-              `You have been assigned to case ${data.case_number}. Initial task: "${taskTitle}"`,
+              `You have been assigned to case ${data.case_number}. ${taskSummary}`,
               'info',
               `/cases/${data.id}`,
               data.id,
-              initialTask?.id
+              createdTasks[0]?.id
             );
           }
         }
