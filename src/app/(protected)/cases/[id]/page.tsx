@@ -15,7 +15,7 @@ import CaseForm from '@/components/cases/CaseForm';
 import { transitionCaseStage, reassignCase } from '@/lib/workflow';
 import CaseDocumentManager from '@/components/documents/CaseDocumentManager';
 import CaseCommentSection from '@/components/cases/CaseCommentSection';
-import { formatDate, formatDateTime, capitalize, getStatusColor, getPriorityColor } from '@/lib/utils';
+import { formatDate, formatDateTime, capitalize, getStatusColor, getPriorityColor, formatINR } from '@/lib/utils';
 import type { Case, WorkflowStage, Activity, Task, CaseStageHistory, Profile, CaseStatus } from '@/types';
 import {
   ArrowLeft,
@@ -38,6 +38,8 @@ import {
   Plus,
   Building2,
   UserPlus,
+  Banknote,
+  Landmark,
 } from 'lucide-react';
 
 export default function CaseDetailPage() {
@@ -345,20 +347,51 @@ export default function CaseDetailPage() {
               </span>
             </div>
 
-            <p className="text-sm text-slate-400 mt-1 flex items-center gap-2">
-              Customer:{' '}
-              {caseData.customer ? (
-                <Link
-                  href={`/customers/${caseData.customer.id}`}
-                  className="text-indigo-400 font-medium hover:underline flex items-center gap-1"
-                >
-                  {caseData.customer.full_name}
-                </Link>
-              ) : (
-                'Unassigned'
-              )}{' '}
-              · Created on {formatDate(caseData.created_at)}
-            </p>
+            <div className="text-sm text-slate-400 mt-1 flex flex-wrap items-center gap-2">
+              <span className="flex items-center gap-1">
+                Customer:
+                {caseData.customer ? (
+                  <Link
+                    href={`/customers/${caseData.customer.id}`}
+                    className="text-indigo-400 font-medium hover:underline ml-1"
+                  >
+                    {caseData.customer.full_name}
+                  </Link>
+                ) : (
+                  <span className="text-slate-400 ml-1">Unassigned</span>
+                )}
+              </span>
+              {caseData.building && (
+                <>
+                  <span>·</span>
+                  <span className="text-indigo-300 font-medium flex items-center gap-1">
+                    <Building2 className="h-3.5 w-3.5" />
+                    {caseData.building.name}
+                  </span>
+                </>
+              )}
+              {caseData.loan_amount && (
+                <>
+                  <span>·</span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    {formatINR(caseData.loan_amount)}
+                  </span>
+                </>
+              )}
+              {caseData.bank_name && (
+                <>
+                  <span>·</span>
+                  <span className="text-slate-300 flex items-center gap-1">
+                    <Landmark className="h-3.5 w-3.5 text-indigo-400" />
+                    {caseData.bank_name}
+                  </span>
+                </>
+              )}
+              <span>·</span>
+              <span className="text-slate-500 font-mono text-xs">
+                Created {formatDate(caseData.created_at)}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -526,6 +559,77 @@ export default function CaseDetailPage() {
                 <span className="font-mono text-indigo-300">
                   {caseData.stage_due_date ? formatDate(caseData.stage_due_date) : 'Not calculated'}
                 </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Financial & Loan Details Card */}
+          <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-6 space-y-4 shadow-lg">
+            <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
+              <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Banknote className="h-4 w-4 text-emerald-400" />
+                Loan & Financials
+              </h3>
+              {caseData.loan_amount != null && (
+                <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                  {formatINR(caseData.loan_amount)}
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3 py-1 border-b border-slate-800/60">
+                <div>
+                  <p className="text-[11px] text-slate-500">Loan Amount</p>
+                  <p className="font-semibold text-emerald-400 text-sm mt-0.5 font-mono">
+                    {formatINR(caseData.loan_amount)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-slate-500">Property Value</p>
+                  <p className="font-semibold text-slate-200 text-sm mt-0.5 font-mono">
+                    {formatINR(caseData.property_value)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 py-1 border-b border-slate-800/60 text-xs">
+                <div>
+                  <p className="text-[11px] text-slate-500">Loan Product</p>
+                  <p className="font-medium text-slate-200 mt-0.5">
+                    {caseData.loan_type || 'Home Loan'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-slate-500">Bank / Lender</p>
+                  <p className="font-medium text-indigo-300 mt-0.5 flex items-center gap-1">
+                    <Landmark className="h-3 w-3 text-indigo-400 shrink-0" />
+                    <span className="truncate">{caseData.bank_name || 'Not specified'}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 py-1 text-xs">
+                <div>
+                  <p className="text-[11px] text-slate-500">Interest Rate</p>
+                  <p className="font-mono text-slate-200 mt-0.5">
+                    {caseData.interest_rate != null ? `${caseData.interest_rate}% p.a.` : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-slate-500">Tenure</p>
+                  <p className="font-mono text-slate-200 mt-0.5">
+                    {caseData.loan_tenure_months
+                      ? `${caseData.loan_tenure_months} M (${(caseData.loan_tenure_months / 12).toFixed(0)} Y)`
+                      : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-slate-500">Ref #</p>
+                  <p className="font-mono text-slate-300 mt-0.5 truncate" title={caseData.application_number || ''}>
+                    {caseData.application_number || '—'}
+                  </p>
+                </div>
               </div>
             </div>
           </div>

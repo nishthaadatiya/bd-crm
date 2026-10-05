@@ -122,7 +122,7 @@ export default function BuildingForm({
         <Input
           id="building_name"
           label="Building / Project Name *"
-          placeholder="e.g. Oori Residences, Sunset Heights"
+          placeholder="e.g. Skyline Towers, Green Valley Heights"
           value={formData.name}
           onChange={(e) => updateField('name', e.target.value)}
           error={errors.name}
@@ -132,7 +132,7 @@ export default function BuildingForm({
         <Input
           id="building_code"
           label="Code / Reference ID"
-          placeholder="e.g. BLD-OORI, PRJ-102"
+          placeholder="e.g. BLD-001, PRJ-101"
           value={formData.code}
           onChange={(e) => updateField('code', e.target.value)}
         />

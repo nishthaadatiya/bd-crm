@@ -22,6 +22,17 @@ export function formatDate(dateString: string | null | undefined): string {
   });
 }
 
+export function formatINR(amount: number | string | null | undefined): string {
+  if (amount === null || amount === undefined || amount === '') return '—';
+  const num = typeof amount === 'string' ? parseFloat(amount) : amount;
+  if (isNaN(num)) return '—';
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(num);
+}
+
 export function formatDateTime(dateString: string | null | undefined): string {
   if (!dateString) return '—';
   return new Date(dateString).toLocaleDateString('en-US', {

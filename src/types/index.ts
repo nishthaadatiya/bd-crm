@@ -87,6 +87,14 @@ export interface Case {
   description: string | null;
   notes: string | null;
   expected_completion_date: string | null;
+  // Financial & Loan Details
+  loan_amount?: number | null;
+  loan_type?: string | null;
+  loan_tenure_months?: number | null;
+  interest_rate?: number | null;
+  property_value?: number | null;
+  bank_name?: string | null;
+  application_number?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -241,6 +249,14 @@ export interface CaseFormData {
   description: string;
   notes: string;
   expected_completion_date: string;
+  // Financial & Loan Details
+  loan_amount?: string;
+  loan_type?: string;
+  loan_tenure_months?: string;
+  interest_rate?: string;
+  property_value?: string;
+  bank_name?: string;
+  application_number?: string;
 }
 
 export interface BuildingFormData {

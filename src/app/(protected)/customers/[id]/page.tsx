@@ -11,7 +11,7 @@ import { PageSkeleton } from '@/components/ui/Skeleton';
 import EmptyState from '@/components/ui/EmptyState';
 import CustomerForm from '@/components/customers/CustomerForm';
 import CaseForm from '@/components/cases/CaseForm';
-import { formatDate, formatDateTime, capitalize, getStatusColor, getPriorityColor } from '@/lib/utils';
+import { formatDate, formatDateTime, capitalize, getStatusColor, getPriorityColor, formatINR } from '@/lib/utils';
 import type { Customer, Case, Activity } from '@/types';
 import {
   ArrowLeft,
@@ -62,6 +62,7 @@ export default function CustomerDetailPage() {
       .from('cases')
       .select(`
         *,
+        building:buildings(*),
         assigned_profile:profiles!cases_assigned_to_fkey(id, full_name),
         current_stage:workflow_stages(id, name, color)
       `)
@@ -191,8 +192,18 @@ export default function CustomerDetailPage() {
                     className="flex items-center justify-between px-6 py-4 hover:bg-slate-800/30 transition-colors group"
                   >
                     <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono text-slate-500">{c.case_number}</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-indigo-400">{c.case_number}</span>
+                        {c.loan_amount && (
+                          <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                            {formatINR(c.loan_amount)}
+                          </span>
+                        )}
+                        {c.building && (
+                          <span className="text-xs text-indigo-300 font-medium">
+                            · {c.building.name}
+                          </span>
+                        )}
                         <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusColor(c.status)}`}>
                           {capitalize(c.status)}
                         </span>
@@ -201,7 +212,7 @@ export default function CustomerDetailPage() {
                         </span>
                       </div>
                       <p className="text-sm text-slate-300 group-hover:text-indigo-400 transition-colors">
-                        {c.description || capitalize(c.case_type)}
+                        {c.description || `${c.loan_type || capitalize(c.case_type)} ${c.bank_name ? `• ${c.bank_name}` : ''}`}
                       </p>
                     </div>
                     <div className="text-right shrink-0 ml-4">

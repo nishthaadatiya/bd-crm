@@ -9,7 +9,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { TableSkeleton } from '@/components/ui/Skeleton';
 import CaseForm from '@/components/cases/CaseForm';
-import { formatDate, capitalize, getStatusColor, getPriorityColor } from '@/lib/utils';
+import { formatDate, capitalize, getStatusColor, getPriorityColor, formatINR } from '@/lib/utils';
 import type { Case, WorkflowStage, Profile, Building } from '@/types';
 import {
   Plus,
@@ -322,6 +322,9 @@ export default function CasesPage() {
                     Building / Project
                   </th>
                   <th className="px-6 py-3.5 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                    Loan / Lender
+                  </th>
+                  <th className="px-6 py-3.5 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
                     Case Type
                   </th>
                   <th className="px-6 py-3.5 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
@@ -370,6 +373,22 @@ export default function CasesPage() {
                           <Building2 className="h-3.5 w-3.5 shrink-0 text-indigo-400" />
                           {c.building.name}
                         </span>
+                      ) : (
+                        <span className="text-slate-600">—</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-xs">
+                      {c.loan_amount ? (
+                        <div>
+                          <span className="font-mono font-bold text-emerald-400">
+                            {formatINR(c.loan_amount)}
+                          </span>
+                          {c.bank_name && (
+                            <span className="block text-[11px] text-slate-400 truncate max-w-[130px]" title={c.bank_name}>
+                              {c.bank_name}
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-slate-600">—</span>
                       )}

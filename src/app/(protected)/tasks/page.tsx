@@ -9,7 +9,7 @@ import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import EmptyState from '@/components/ui/EmptyState';
 import { TableSkeleton } from '@/components/ui/Skeleton';
-import { formatDate, capitalize, getPriorityColor, getStatusColor } from '@/lib/utils';
+import { formatDate, capitalize, getPriorityColor, getStatusColor, formatINR } from '@/lib/utils';
 import type { Task, Case } from '@/types';
 import {
   ListTodo,
@@ -580,6 +580,11 @@ export default function OperationalDashboardPage() {
                         <Link href={`/cases/${c.id}`} className="hover:underline">
                           {c.case_number}
                         </Link>
+                        {c.loan_amount && (
+                          <span className="block text-[11px] font-mono font-semibold text-emerald-400">
+                            {formatINR(c.loan_amount)}
+                          </span>
+                        )}
                       </td>
                       <td className="px-5 py-3.5 text-slate-200">
                         {c.customer ? (
