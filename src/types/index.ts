@@ -274,3 +274,87 @@ export interface DashboardStats {
   openTasks: number;
   overdueTasks: number;
 }
+
+// Dashboard & Business Analytics Types
+export type DashboardDatePreset =
+  | 'today'
+  | 'this_week'
+  | 'this_month'
+  | 'last_month'
+  | 'this_quarter'
+  | 'this_year'
+  | 'custom';
+
+export interface DashboardFilterState {
+  preset: DashboardDatePreset;
+  startDate: string | null;
+  endDate: string | null;
+  buildingId: string | null;
+}
+
+export interface DashboardKPIs {
+  total_cases: number;
+  new_cases: number;
+  active_cases: number;
+  completed_cases: number;
+  blocked_cases: number;
+  overdue_cases: number;
+  total_loan_amount: number;
+  active_loan_amount: number;
+  completed_loan_amount: number;
+}
+
+export interface StagePipelineMetric {
+  stage_id: string;
+  stage_name: string;
+  stage_color: string;
+  display_order: number;
+  sla_days: number;
+  case_count: number;
+  total_loan_amount: number;
+  overdue_count: number;
+  avg_duration_days: number;
+}
+
+export interface ProjectPerformanceMetric {
+  building_id: string;
+  building_name: string;
+  building_code: string | null;
+  total_cases: number;
+  active_cases: number;
+  completed_cases: number;
+  blocked_cases: number;
+  overdue_cases: number;
+  total_loan_value: number;
+  avg_completion_days: number;
+}
+
+export interface LoanByTypeMetric {
+  product_type: string;
+  case_count: number;
+  total_loan_amount: number;
+}
+
+export interface EmployeeWorkloadMetric {
+  employee_id: string;
+  employee_name: string;
+  employee_email: string;
+  role_name: string;
+  active_cases: number;
+  total_assigned_cases: number;
+  completed_cases: number;
+  open_tasks: number;
+  overdue_tasks: number;
+  avg_turnaround_days: number;
+}
+
+export interface AttentionItem {
+  id: string;
+  case_number: string;
+  customer_name: string;
+  building_name?: string | null;
+  stage_name?: string | null;
+  type: 'overdue' | 'blocked' | 'waiting_docs' | 'approaching_deadline';
+  detail: string;
+  due_date?: string | null;
+}

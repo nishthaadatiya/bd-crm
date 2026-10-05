@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useToast } from '@/components/ui/Toast';
 import Button from '@/components/ui/Button';
@@ -22,13 +23,16 @@ import {
   ChevronRight,
   Filter,
   Building2,
+  X,
+  ClockAlert,
 } from 'lucide-react';
 
 const PAGE_SIZE = 10;
 
-export default function CasesPage() {
+function CasesContent() {
   const supabase = createClient();
   const { toast } = useToast();
+  const searchParams = useSearchParams();
 
   const [cases, setCases] = useState<Case[]>([]);
   const [stages, setStages] = useState<WorkflowStage[]>([]);
@@ -42,6 +46,7 @@ export default function CasesPage() {
   const [employeeFilter, setEmployeeFilter] = useState<string>('all');
   const [buildingFilter, setBuildingFilter] = useState<string>('all');
   const [caseTypeFilter, setCaseTypeFilter] = useState<string>('all');
+  const [isOverdueOnly, setIsOverdueOnly] = useState<boolean>(false);
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
 
@@ -50,6 +55,23 @@ export default function CasesPage() {
   const [editingCase, setEditingCase] = useState<Case | null>(null);
   const [deletingCase, setDeletingCase] = useState<Case | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Sync filters from URL searchParams
+  useEffect(() => {
+    const statusParam = searchParams.get('status');
+    const buildingParam = searchParams.get('building');
+    const stageParam = searchParams.get('stage');
+    const assignedParam = searchParams.get('assigned');
+    const searchParam = searchParams.get('search');
+    const overdueParam = searchParams.get('overdue');
+
+    if (statusParam) setStatusFilter(statusParam);
+    if (buildingParam) setBuildingFilter(buildingParam);
+    if (stageParam) setStageFilter(stageParam);
+    if (assignedParam) setEmployeeFilter(assignedParam);
+    if (searchParam) setSearch(searchParam);
+    if (overdueParam === 'true') setIsOverdueOnly(true);
+  }, [searchParams]);
 
   useEffect(() => {
     async function fetchMetadata() {
@@ -138,6 +160,10 @@ export default function CasesPage() {
         query = query.eq('case_type', caseTypeFilter);
       }
 
+      if (isOverdueOnly) {
+        query = query.lt('stage_due_date', new Date().toISOString()).not('status', 'in', '("completed","cancelled")');
+      }
+
       const { data, error, count } = await query;
 
       if (error) throw error;
@@ -159,6 +185,7 @@ export default function CasesPage() {
     employeeFilter,
     buildingFilter,
     caseTypeFilter,
+    isOverdueOnly,
     page,
     toast,
   ]);
@@ -169,7 +196,7 @@ export default function CasesPage() {
 
   useEffect(() => {
     setPage(0);
-  }, [search, statusFilter, priorityFilter, stageFilter, employeeFilter, buildingFilter, caseTypeFilter]);
+  }, [search, statusFilter, priorityFilter, stageFilter, employeeFilter, buildingFilter, caseTypeFilter, isOverdueOnly]);
 
   const handleDelete = async () => {
     if (!deletingCase) return;
@@ -306,6 +333,17 @@ export default function CasesPage() {
             <option value="high">High</option>
             <option value="urgent">Urgent</option>
           </select>
+
+          {isOverdueOnly && (
+            <button
+              onClick={() => setIsOverdueOnly(false)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 transition-colors"
+            >
+              <ClockAlert className="h-3.5 w-3.5" />
+              Overdue Cases Only
+              <X className="h-3 w-3 ml-0.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -317,9 +355,9 @@ export default function CasesPage() {
       ) : cases.length === 0 ? (
         <EmptyState
           icon={<Briefcase className="h-8 w-8 text-slate-500" />}
-          title={search || statusFilter !== 'all' || buildingFilter !== 'all' ? 'No matching cases' : 'No cases found'}
+          title={search || statusFilter !== 'all' || buildingFilter !== 'all' || isOverdueOnly ? 'No matching cases' : 'No cases found'}
           description={
-            search || statusFilter !== 'all' || buildingFilter !== 'all'
+            search || statusFilter !== 'all' || buildingFilter !== 'all' || isOverdueOnly
               ? 'Try changing your search or filter parameters'
               : 'Create a case to start tracking customer progress'
           }
@@ -363,127 +401,143 @@ export default function CasesPage() {
                     Assigned To
                   </th>
                   <th className="px-6 py-3.5 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                    Updated
+                    Created
                   </th>
                   <th className="px-6 py-3.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/40">
-                {cases.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="px-6 py-4 text-sm font-mono font-bold text-indigo-400">
-                      <Link href={`/cases/${c.id}`} className="hover:underline">
-                        {c.case_number}
-                      </Link>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-200">
-                      {c.customer ? (
-                        <Link
-                          href={`/customers/${c.customer.id}`}
-                          className="hover:text-indigo-400 transition-colors font-medium"
-                        >
-                          {c.customer.full_name}
-                        </Link>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-xs font-medium text-slate-300">
-                      {c.building ? (
-                        <span className="flex items-center gap-1.5 text-indigo-300">
-                          <Building2 className="h-3.5 w-3.5 shrink-0 text-indigo-400" />
-                          {c.building.name}
-                        </span>
-                      ) : (
-                        <span className="text-slate-600">—</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-xs">
-                      {c.loan_amount ? (
-                        <div>
-                          <span className="font-mono font-bold text-emerald-400">
-                            {formatINR(c.loan_amount)}
-                          </span>
-                          {c.bank_name && (
-                            <span className="block text-[11px] text-slate-400 truncate max-w-[130px]" title={c.bank_name}>
-                              {c.bank_name}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-slate-600">—</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-400">{capitalize(c.case_type)}</td>
-                    <td className="px-6 py-4">
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${getStatusColor(
-                          c.status
-                        )}`}
-                      >
-                        {capitalize(c.status)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${getPriorityColor(
-                          c.priority
-                        )}`}
-                      >
-                        {capitalize(c.priority)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      {c.current_stage ? (
-                        <span
-                          className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium"
-                          style={{
-                            backgroundColor: `${c.current_stage.color}20`,
-                            color: c.current_stage.color,
-                          }}
-                        >
-                          {c.current_stage.name}
-                        </span>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-400">
-                      {c.assigned_profile?.full_name ?? 'Unassigned'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-500">{formatDate(c.updated_at)}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-end gap-1">
+              <tbody className="divide-y divide-slate-800/60">
+                {cases.map((c) => {
+                  const isOverdue =
+                    c.stage_due_date &&
+                    new Date(c.stage_due_date) < new Date() &&
+                    !['completed', 'cancelled'].includes(c.status);
+
+                  return (
+                    <tr
+                      key={c.id}
+                      className="hover:bg-slate-800/30 transition-colors duration-150"
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap">
                         <Link
                           href={`/cases/${c.id}`}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
-                          title="View Details"
+                          className="text-sm font-semibold font-mono text-indigo-400 hover:text-indigo-300 transition-colors"
                         >
-                          <Eye className="h-4 w-4" />
+                          {c.case_number}
                         </Link>
-                        <button
-                          onClick={() => {
-                            setEditingCase(c);
-                            setIsFormOpen(true);
-                          }}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors cursor-pointer"
-                          title="Edit"
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <p className="text-sm font-medium text-white">
+                          {c.customer?.full_name ?? '—'}
+                        </p>
+                        {c.customer?.phone && (
+                          <p className="text-xs text-slate-500 font-mono">{c.customer.phone}</p>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <Building2 className="h-3.5 w-3.5 text-slate-500" />
+                          <span className="text-sm text-slate-300">
+                            {c.building?.name ?? '—'}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div>
+                          <p className="text-sm font-mono font-medium text-cyan-300">
+                            {formatINR(c.loan_amount)}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {c.bank_name || 'Lender unassigned'}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-300">
+                        {capitalize(c.case_type)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(
+                            c.status
+                          )}`}
                         >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => setDeletingCase(c)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-red-400 transition-colors cursor-pointer"
-                          title="Delete"
+                          {capitalize(c.status)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getPriorityColor(
+                            c.priority
+                          )}`}
                         >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {capitalize(c.priority)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="space-y-0.5">
+                          <span
+                            className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium"
+                            style={{
+                              backgroundColor: `${c.current_stage?.color || '#6366f1'}20`,
+                              color: c.current_stage?.color || '#818cf8',
+                            }}
+                          >
+                            {c.current_stage?.name || 'Unassigned'}
+                          </span>
+                          {c.stage_due_date && (
+                            <p
+                              className={`text-[10px] font-mono ${
+                                isOverdue ? 'text-red-400 font-semibold' : 'text-slate-500'
+                              }`}
+                            >
+                              {isOverdue ? 'Overdue: ' : 'Due: '}
+                              {new Date(c.stage_due_date).toLocaleDateString('en-IN', {
+                                month: 'short',
+                                day: 'numeric',
+                              })}
+                            </p>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-300">
+                        {c.assigned_profile?.full_name ?? 'Unassigned'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 font-mono">
+                        {formatDate(c.created_at)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                        <div className="flex items-center justify-end gap-1">
+                          <Link
+                            href={`/cases/${c.id}`}
+                            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+                            title="Open Workspace"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Link>
+                          <button
+                            onClick={() => {
+                              setEditingCase(c);
+                              setIsFormOpen(true);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                            title="Edit Case"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => setDeletingCase(c)}
+                            className="p-1.5 text-slate-400 hover:text-red-400 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                            title="Delete Case"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -541,5 +595,13 @@ export default function CasesPage() {
         isLoading={isDeleting}
       />
     </div>
+  );
+}
+
+export default function CasesPage() {
+  return (
+    <Suspense fallback={<TableSkeleton rows={6} cols={8} />}>
+      <CasesContent />
+    </Suspense>
   );
 }
