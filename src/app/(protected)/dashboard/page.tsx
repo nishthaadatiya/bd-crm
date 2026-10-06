@@ -1,5 +1,7 @@
 'use client';
 
+import { isActiveCase, isClosedCase, getCaseStatusLabel, TERMINAL_CASE_STATUSES } from '@/lib/case-status';
+
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -113,7 +115,7 @@ export default function DashboardPage() {
     try {
       // 1. Try to invoke the fast, secure RPC function
       const { data: rpcData, error: rpcError } = await supabase.rpc(
-        'get_business_dashboard_metrics',
+        'get_business_dashboard_metrics_v6',
         {
           p_start_date: filterState.startDate,
           p_end_date: filterState.endDate,
@@ -152,10 +154,11 @@ export default function DashboardPage() {
           stage_due_date,
           customer:customers(full_name),
           building:buildings(name),
+          work_flag, flag_reason, follow_up_date,
           stage:workflow_stages(name)
         `)
-        .or('status.eq.blocked,status.eq.waiting,stage_due_date.lt.now()')
-        .not('status', 'in', '("completed","cancelled")')
+        .or('work_flag.eq.blocked,work_flag.eq.waiting,status.eq.blocked,status.eq.waiting,stage_due_date.lt.now(),follow_up_date.lte.today')
+        .not('status', 'in', TERMINAL_CASE_STATUSES)
         .limit(20);
 
       if (filterState.buildingId) {
@@ -169,15 +172,15 @@ export default function DashboardPage() {
           let type: AttentionItem['type'] = 'approaching_deadline';
           let detail = 'Requires review';
 
-          if (c.status === 'blocked') {
+          if ((c.work_flag === 'blocked' || c.status === 'blocked')) {
             type = 'blocked';
-            detail = 'Workflow is blocked and requires management clearance';
+            detail = c.flag_reason || 'Workflow is blocked and requires management clearance';
           } else if (isOverdue) {
             type = 'overdue';
             detail = 'SLA deadline exceeded for current stage';
-          } else if (c.status === 'waiting') {
+          } else if (c.work_flag === 'waiting' || c.status === 'waiting') {
             type = 'waiting_docs';
-            detail = 'Awaiting required customer or bank documentation';
+            detail = c.flag_reason || 'Awaiting required customer or bank documentation';
           }
 
           return {
@@ -210,6 +213,7 @@ export default function DashboardPage() {
       loan_type,
       case_type,
       stage_due_date,
+      work_flag,
       stage_entered_at,
       created_at,
       updated_at,
@@ -257,17 +261,17 @@ export default function DashboardPage() {
       const amt = Number(c.loan_amount) || 0;
       totalLoan += amt;
 
-      if (c.status === 'new') newCases++;
-      if (['new', 'in_progress', 'waiting'].includes(c.status)) {
+      if (['lead', 'new'].includes(c.status)) newCases++;
+      if (isActiveCase(c.status)) {
         activeCases++;
         activeLoan += amt;
       }
-      if (c.status === 'completed') {
+      if (isClosedCase(c.status)) {
         completedCases++;
         completedLoan += amt;
       }
-      if (c.status === 'blocked') blockedCases++;
-      if (c.stage_due_date && new Date(c.stage_due_date) < now && !['completed', 'cancelled'].includes(c.status)) {
+      if ((c.work_flag === 'blocked' || c.status === 'blocked')) blockedCases++;
+      if (c.stage_due_date && new Date(c.stage_due_date) < now && isActiveCase(c.status)) {
         overdueCases++;
       }
     });
@@ -287,7 +291,7 @@ export default function DashboardPage() {
     // 2. Workflow Stage Pipeline
     const pipelineData: StagePipelineMetric[] = stageList.map((stg) => {
       const stgCases = caseList.filter(
-        (c) => c.current_stage_id === stg.id && !['completed', 'cancelled'].includes(c.status)
+        (c) => c.current_stage_id === stg.id && isActiveCase(c.status)
       );
       const stgLoan = stgCases.reduce((sum, c) => sum + (Number(c.loan_amount) || 0), 0);
       const stgOverdue = stgCases.filter(
@@ -322,11 +326,11 @@ export default function DashboardPage() {
       .filter((b) => !filterState.buildingId || b.id === filterState.buildingId)
       .map((b) => {
         const bCases = caseList.filter((c) => c.building_id === b.id);
-        const bActive = bCases.filter((c) => ['new', 'in_progress', 'waiting'].includes(c.status)).length;
-        const bCompleted = bCases.filter((c) => c.status === 'completed');
-        const bBlocked = bCases.filter((c) => c.status === 'blocked').length;
+        const bActive = bCases.filter((c) => isActiveCase(c.status)).length;
+        const bCompleted = bCases.filter((c) => isClosedCase(c.status));
+        const bBlocked = bCases.filter((c) => (c.work_flag === 'blocked' || c.status === 'blocked')).length;
         const bOverdue = bCases.filter(
-          (c) => c.stage_due_date && new Date(c.stage_due_date) < now && !['completed', 'cancelled'].includes(c.status)
+          (c) => c.stage_due_date && new Date(c.stage_due_date) < now && isActiveCase(c.status)
         ).length;
         const bLoan = bCases.reduce((sum, c) => sum + (Number(c.loan_amount) || 0), 0);
 
@@ -376,8 +380,8 @@ export default function DashboardPage() {
     // 5. Employee Workload
     const empData: EmployeeWorkloadMetric[] = profileList.map((p: any) => {
       const pCases = caseList.filter((c) => c.assigned_to === p.id);
-      const pActive = pCases.filter((c) => ['new', 'in_progress', 'waiting'].includes(c.status)).length;
-      const pCompleted = pCases.filter((c) => c.status === 'completed');
+      const pActive = pCases.filter((c) => isActiveCase(c.status)).length;
+      const pCompleted = pCases.filter((c) => isClosedCase(c.status));
 
       return {
         employee_id: p.id,
@@ -552,7 +556,7 @@ export default function DashboardPage() {
               <Briefcase className="h-4 w-4 text-emerald-400" />
             </div>
             <p className="text-2xl font-bold font-mono text-white">
-              {myCases.filter((c) => !['completed', 'cancelled'].includes(c.status)).length}
+              {myCases.filter((c) => isActiveCase(c.status)).length}
             </p>
             <p className="text-[11px] text-slate-400">Under your management</p>
           </div>
@@ -650,7 +654,7 @@ export default function DashboardPage() {
 
                     <div className="flex items-center gap-2">
                       <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
-                        {c.status}
+                        {getCaseStatusLabel(c.status)}
                       </span>
                       <ArrowRight className="h-3.5 w-3.5 text-slate-400" />
                     </div>

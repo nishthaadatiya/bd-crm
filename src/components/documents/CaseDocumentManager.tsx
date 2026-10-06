@@ -1,12 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/components/ui/Toast';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import { deleteCaseDocument, removeDocumentFile } from '@/lib/document-delete';
 import Textarea from '@/components/ui/Textarea';
 import { sendNotification } from '@/lib/workflow';
 import { formatDate, formatDateTime } from '@/lib/utils';
@@ -30,6 +32,7 @@ import {
   ChevronUp,
   FileCheck,
   Plus,
+  Trash2,
 } from 'lucide-react';
 
 interface CaseDocumentManagerProps {
@@ -78,6 +81,11 @@ export default function CaseDocumentManager({
 
   // Version History Modal State
   const [historyRequirement, setHistoryRequirement] = useState<RequirementWithUploads | null>(null);
+  const [deletingUpload, setDeletingUpload] = useState<DocumentUpload | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const deletionBusy = useRef(false);
+  const [cleanup, setCleanup] = useState<{ path: string; filename: string; warning: string }[]>([]);
+  const [retryingCleanup, setRetryingCleanup] = useState<string | null>(null);
 
   const fetchDocumentsData = useCallback(async () => {
     setIsLoading(true);
@@ -93,8 +101,14 @@ export default function CaseDocumentManager({
             reviewed_by_profile:profiles!document_uploads_reviewed_by_fkey(id, full_name)
           `)
           .eq('case_id', caseId)
-          .order('version', { ascending: false }),
+          .order('version', { ascending: false })
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false }),
       ]);
+
+      if (stagesRes.error) throw stagesRes.error;
+      if (reqsRes.error) throw reqsRes.error;
+      if (uploadsRes.error) throw uploadsRes.error;
 
       const stagesList = (stagesRes.data ?? []) as WorkflowStage[];
       const reqsList = (reqsRes.data ?? []) as DocumentRequirement[];
@@ -124,6 +138,48 @@ export default function CaseDocumentManager({
       setIsLoading(false);
     }
   }, [supabase, caseId]);
+
+  const canDelete = (upload: DocumentUpload) => !!user && (isOwnerOrManager || upload.uploaded_by === user.id);
+  const openDelete = (upload: DocumentUpload) => {
+    if (!canDelete(upload) || deletionBusy.current) return;
+    setHistoryRequirement(null);
+    setDeletingUpload(upload);
+  };
+  const handleDelete = async () => {
+    if (!deletingUpload || !canDelete(deletingUpload) || deletionBusy.current) return;
+    deletionBusy.current = true;
+    setIsDeleting(true);
+    try {
+      const result = await deleteCaseDocument(supabase, deletingUpload.id, caseId);
+      if (result.cleanupPath && result.warning) {
+        setCleanup((items) => [...items, { path: result.cleanupPath!, filename: deletingUpload.original_filename, warning: result.warning! }]);
+      }
+      toast(result.warning || 'Document deleted', result.warning ? 'warning' : 'success');
+      setDeletingUpload(null);
+      await fetchDocumentsData();
+      onActivityLogged?.();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Could not delete the document', 'error');
+    } finally { deletionBusy.current = false; setIsDeleting(false); }
+  };
+  const retryCleanup = async (path: string) => {
+    if (retryingCleanup) return;
+    setRetryingCleanup(path);
+    try {
+      await removeDocumentFile(supabase, path);
+      setCleanup((items) => items.filter((item) => item.path !== path));
+      toast('Stored file deleted', 'success');
+    } catch (err) { toast(err instanceof Error ? err.message : 'File cleanup failed', 'error'); }
+    finally { setRetryingCleanup(null); }
+  };
+  const deleteButton = (upload: DocumentUpload) => canDelete(upload) && (
+    <button type="button" onClick={() => openDelete(upload)} disabled={isDeleting}
+      aria-label={`Delete ${upload.original_filename}, version ${upload.version}`}
+      title="Delete this uploaded version"
+      className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-rose-400 hover:bg-rose-500/10 disabled:opacity-50 cursor-pointer">
+      <Trash2 className="h-3.5 w-3.5" /> Delete
+    </button>
+  );
 
   useEffect(() => {
     fetchDocumentsData();
@@ -458,6 +514,10 @@ export default function CaseDocumentManager({
       </div>
 
       {/* Checklist Table */}
+      {cleanup.map((item) => <div key={item.path} role="alert" className="rounded-lg border border-amber-500/30 p-3 text-xs text-amber-300">
+        <p>{item.filename}: {item.warning}</p>
+        <Button size="sm" variant="secondary" onClick={() => retryCleanup(item.path)} disabled={!!retryingCleanup} isLoading={retryingCleanup === item.path}>Retry file cleanup</Button>
+      </div>)}
       {isLoading ? (
         <div className="py-6 text-center text-xs text-slate-500">Loading case documents...</div>
       ) : filteredRequirements.length === 0 && customUploads.length === 0 ? (
@@ -524,7 +584,8 @@ export default function CaseDocumentManager({
                   </div>
 
                   {/* Actions Toolbar */}
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {latest && deleteButton(latest)}
                     {/* View / Download */}
                     {latest && (
                       <button
@@ -605,6 +666,7 @@ export default function CaseDocumentManager({
 
                     <div className="flex items-center gap-2">
                       {renderStatusBadge(up.status)}
+                      {deleteButton(up)}
                       <button
                         onClick={() => handleDownload(up)}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
@@ -619,6 +681,11 @@ export default function CaseDocumentManager({
           )}
         </div>
       )}
+
+      <ConfirmDialog isOpen={!!deletingUpload}
+        onClose={() => { if (!deletionBusy.current) setDeletingUpload(null); }}
+        onConfirm={handleDelete} isLoading={isDeleting} title="Delete uploaded document?" confirmText="Delete Document"
+        message={`Delete "${deletingUpload?.original_filename}" (version ${deletingUpload?.version})? This removes this uploaded version and its stored file. Any earlier version becomes current; otherwise the checklist item becomes missing. This cannot be undone.`} />
 
       {/* Upload Document Modal */}
       <Modal
@@ -727,7 +794,7 @@ export default function CaseDocumentManager({
       >
         <div className="space-y-4">
           <p className="text-xs text-slate-400">
-            Chronological audit of all revisions uploaded for this requirement. Previous records are preserved permanently.
+            Available versions for this requirement. Document deletions remain recorded in the case activity history.
           </p>
 
           <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
@@ -740,6 +807,7 @@ export default function CaseDocumentManager({
                   <div className="flex items-center gap-2">
                     <span className="font-mono font-bold text-indigo-400">Version {v.version}</span>
                     {renderStatusBadge(v.status)}
+                    {deleteButton(v)}
                   </div>
                   <button
                     onClick={() => handleDownload(v)}

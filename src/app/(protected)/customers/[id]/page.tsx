@@ -1,5 +1,7 @@
 'use client';
 
+import { getCaseStatusLabel } from '@/lib/case-status';
+
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -205,7 +207,7 @@ export default function CustomerDetailPage() {
                           </span>
                         )}
                         <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusColor(c.status)}`}>
-                          {capitalize(c.status)}
+                          {getCaseStatusLabel(c.status)}
                         </span>
                         <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getPriorityColor(c.priority)}`}>
                           {capitalize(c.priority)}

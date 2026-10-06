@@ -1,5 +1,7 @@
 'use client';
 
+import { isActiveCase, isClosedCase } from '@/lib/case-status';
+
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -59,7 +61,7 @@ export default function ReportsPage() {
 
     try {
       const { data: rpcData, error: rpcError } = await supabase.rpc(
-        'get_business_dashboard_metrics',
+        'get_business_dashboard_metrics_v6',
         {
           p_start_date: filterState.startDate,
           p_end_date: filterState.endDate,
@@ -101,7 +103,7 @@ export default function ReportsPage() {
         // Pipeline
         const pipelineData: StagePipelineMetric[] = stageList.map((stg) => {
           const stgCases = caseList.filter(
-            (c) => c.current_stage_id === stg.id && !['completed', 'cancelled'].includes(c.status)
+            (c) => c.current_stage_id === stg.id && isActiveCase(c.status)
           );
           const stgLoan = stgCases.reduce((sum, c) => sum + (Number(c.loan_amount) || 0), 0);
           const stgOverdue = stgCases.filter(
@@ -136,11 +138,11 @@ export default function ReportsPage() {
           .filter((b) => !filterState.buildingId || b.id === filterState.buildingId)
           .map((b) => {
             const bCases = caseList.filter((c) => c.building_id === b.id);
-            const bActive = bCases.filter((c) => ['new', 'in_progress', 'waiting'].includes(c.status)).length;
-            const bCompleted = bCases.filter((c) => c.status === 'completed');
-            const bBlocked = bCases.filter((c) => c.status === 'blocked').length;
+            const bActive = bCases.filter((c) => isActiveCase(c.status)).length;
+            const bCompleted = bCases.filter((c) => isClosedCase(c.status));
+            const bBlocked = bCases.filter((c) => (c.work_flag === 'blocked' || c.status === 'blocked')).length;
             const bOverdue = bCases.filter(
-              (c) => c.stage_due_date && new Date(c.stage_due_date) < now && !['completed', 'cancelled'].includes(c.status)
+              (c) => c.stage_due_date && new Date(c.stage_due_date) < now && isActiveCase(c.status)
             ).length;
             const bLoan = bCases.reduce((sum, c) => sum + (Number(c.loan_amount) || 0), 0);
 
@@ -195,9 +197,9 @@ export default function ReportsPage() {
               employee_name: p.full_name || 'Staff Member',
               employee_email: p.email || '',
               role_name: p.role?.name || 'employee',
-              active_cases: pCases.filter((c) => ['new', 'in_progress', 'waiting'].includes(c.status)).length,
+              active_cases: pCases.filter((c) => isActiveCase(c.status)).length,
               total_assigned_cases: pCases.length,
-              completed_cases: pCases.filter((c) => c.status === 'completed').length,
+              completed_cases: pCases.filter((c) => isClosedCase(c.status)).length,
               open_tasks: 0,
               overdue_tasks: 0,
               avg_turnaround_days: 0,

@@ -1,5 +1,7 @@
 'use client';
 
+import { CASE_STATUS_OPTIONS, getCaseStatusLabel, isActiveCase, normalizeCaseStatus, TERMINAL_CASE_STATUSES } from '@/lib/case-status';
+
 import { useCallback, useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -10,6 +12,9 @@ import EmptyState from '@/components/ui/EmptyState';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { TableSkeleton } from '@/components/ui/Skeleton';
 import CaseForm from '@/components/cases/CaseForm';
+import { AllCasesExcelButton } from '@/components/cases/CaseExportButtons';
+import CaseFlagControl from '@/components/cases/CaseFlagControl';
+import CaseHandoffModal from '@/components/cases/CaseHandoffModal';
 import { formatDate, capitalize, getStatusColor, getPriorityColor, formatINR } from '@/lib/utils';
 import type { Case, WorkflowStage, Profile, Building } from '@/types';
 import {
@@ -41,6 +46,7 @@ function CasesContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [flagFilter, setFlagFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [stageFilter, setStageFilter] = useState<string>('all');
   const [employeeFilter, setEmployeeFilter] = useState<string>('all');
@@ -53,19 +59,21 @@ function CasesContent() {
   // Modal states
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingCase, setEditingCase] = useState<Case | null>(null);
+  const [handoffCase, setHandoffCase] = useState<Case | null>(null);
   const [deletingCase, setDeletingCase] = useState<Case | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Sync filters from URL searchParams
   useEffect(() => {
     const statusParam = searchParams.get('status');
+    setFlagFilter(searchParams.get('flag') || 'all');
     const buildingParam = searchParams.get('building');
     const stageParam = searchParams.get('stage');
     const assignedParam = searchParams.get('assigned');
     const searchParam = searchParams.get('search');
     const overdueParam = searchParams.get('overdue');
 
-    if (statusParam) setStatusFilter(statusParam);
+    if (statusParam) setStatusFilter(normalizeCaseStatus(statusParam));
     if (buildingParam) setBuildingFilter(buildingParam);
     if (stageParam) setStageFilter(stageParam);
     if (assignedParam) setEmployeeFilter(assignedParam);
@@ -136,9 +144,17 @@ function CasesContent() {
         query = query.or(conditions.join(','));
       }
 
-      if (statusFilter !== 'all') {
+      if (statusFilter === 'active') {
+        query = query.not('status', 'in', TERMINAL_CASE_STATUSES);
+      } else if (statusFilter === 'lead' || statusFilter === 'new') {
+        query = query.in('status', ['lead', 'new']);
+      } else if (statusFilter === 'closed' || statusFilter === 'completed') {
+        query = query.in('status', ['closed', 'completed']);
+      } else if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
       }
+
+      if (flagFilter !== 'all') query = query.eq('work_flag', flagFilter);
 
       if (priorityFilter !== 'all') {
         query = query.eq('priority', priorityFilter);
@@ -161,7 +177,7 @@ function CasesContent() {
       }
 
       if (isOverdueOnly) {
-        query = query.lt('stage_due_date', new Date().toISOString()).not('status', 'in', '("completed","cancelled")');
+        query = query.lt('stage_due_date', new Date().toISOString()).not('status', 'in', TERMINAL_CASE_STATUSES);
       }
 
       const { data, error, count } = await query;
@@ -181,6 +197,7 @@ function CasesContent() {
     search,
     statusFilter,
     priorityFilter,
+    flagFilter,
     stageFilter,
     employeeFilter,
     buildingFilter,
@@ -196,7 +213,7 @@ function CasesContent() {
 
   useEffect(() => {
     setPage(0);
-  }, [search, statusFilter, priorityFilter, stageFilter, employeeFilter, buildingFilter, caseTypeFilter, isOverdueOnly]);
+  }, [search, statusFilter, flagFilter, priorityFilter, stageFilter, employeeFilter, buildingFilter, caseTypeFilter, isOverdueOnly]);
 
   const handleDelete = async () => {
     if (!deletingCase) return;
@@ -228,10 +245,13 @@ function CasesContent() {
             Track and manage workflow cases ({totalCount} total)
           </p>
         </div>
+        <div className="flex flex-wrap gap-2">
+        <AllCasesExcelButton />
         <Button onClick={() => { setEditingCase(null); setIsFormOpen(true); }}>
           <Plus className="h-4 w-4" />
           New Case
         </Button>
+        </div>
       </div>
 
       {/* Filters and Search */}
@@ -314,12 +334,14 @@ function CasesContent() {
             className="rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2 text-sm text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
           >
             <option value="all">All Statuses</option>
-            <option value="new">New</option>
-            <option value="in_progress">In Progress</option>
-            <option value="waiting">Waiting</option>
-            <option value="blocked">Blocked</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
+            {CASE_STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+            <option value="active">All Active</option>
+            <option value="in_progress">In Progress (legacy)</option>
+            <option value="waiting">Waiting (legacy)</option>
+            <option value="blocked">Blocked (legacy)</option>
+            <option value="cancelled">Cancelled (legacy)</option>
           </select>
 
           <select
@@ -334,6 +356,9 @@ function CasesContent() {
             <option value="urgent">Urgent</option>
           </select>
 
+          <select aria-label="Work flag" value={flagFilter} onChange={(event) => setFlagFilter(event.target.value)} className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm">
+            <option value="all">All work flags</option><option value="none">No flag</option><option value="waiting">Waiting</option><option value="blocked">Blocked</option>
+          </select>
           {isOverdueOnly && (
             <button
               onClick={() => setIsOverdueOnly(false)}
@@ -413,7 +438,7 @@ function CasesContent() {
                   const isOverdue =
                     c.stage_due_date &&
                     new Date(c.stage_due_date) < new Date() &&
-                    !['completed', 'cancelled'].includes(c.status);
+                    isActiveCase(c.status);
 
                   return (
                     <tr
@@ -463,7 +488,7 @@ function CasesContent() {
                             c.status
                           )}`}
                         >
-                          {capitalize(c.status)}
+                          {getCaseStatusLabel(c.status)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -503,12 +528,16 @@ function CasesContent() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-300">
                         {c.assigned_profile?.full_name ?? 'Unassigned'}
+                        <CaseFlagControl caseData={c} onSuccess={fetchCases} />
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 font-mono">
                         {formatDate(c.created_at)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
                         <div className="flex items-center justify-end gap-1">
+                          <Button size="sm" variant="secondary" onClick={() => setHandoffCase(c)}>
+                            Complete & Handoff
+                          </Button>
                           <Link
                             href={`/cases/${c.id}`}
                             className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
@@ -574,6 +603,14 @@ function CasesContent() {
       )}
 
       {/* Case Form Modal */}
+      {handoffCase && (
+        <CaseHandoffModal
+          key={handoffCase.id}
+          caseData={handoffCase}
+          onClose={() => setHandoffCase(null)}
+          onSuccess={fetchCases}
+        />
+      )}
       <CaseForm
         isOpen={isFormOpen}
         onClose={() => {

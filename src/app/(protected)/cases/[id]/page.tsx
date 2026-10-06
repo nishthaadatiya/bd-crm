@@ -1,5 +1,7 @@
 'use client';
 
+import { getCaseStatusOptions, getCaseStatusLabel, normalizeCaseStatus } from '@/lib/case-status';
+
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -9,10 +11,11 @@ import { useToast } from '@/components/ui/Toast';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
-import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { PageSkeleton } from '@/components/ui/Skeleton';
 import CaseForm from '@/components/cases/CaseForm';
-import { transitionCaseStage, reassignCase } from '@/lib/workflow';
+import { CasePdfButton } from '@/components/cases/CaseExportButtons';
+import CaseFlagControl from '@/components/cases/CaseFlagControl';
+import CaseHandoffModal from '@/components/cases/CaseHandoffModal';
 import CaseDocumentManager from '@/components/documents/CaseDocumentManager';
 import CaseCommentSection from '@/components/cases/CaseCommentSection';
 import { formatDate, formatDateTime, capitalize, getStatusColor, getPriorityColor, formatINR } from '@/lib/utils';
@@ -49,7 +52,6 @@ export default function CaseDetailPage() {
   const { toast } = useToast();
   const supabase = createClient();
   const caseId = params.id as string;
-  const isOwnerOrManager = role === 'owner' || role === 'manager';
 
   // Data states
   const [caseData, setCaseData] = useState<Case | null>(null);
@@ -62,22 +64,10 @@ export default function CaseDetailPage() {
 
   // UI Modal States
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const [isChangeStageModalOpen, setIsChangeStageModalOpen] = useState(false);
-  const [targetStageForModal, setTargetStageForModal] = useState<WorkflowStage | null>(null);
-  const [modalAssignedTo, setModalAssignedTo] = useState<string>('');
-  const [modalNotes, setModalNotes] = useState<string>('');
-  const [pendingTaskWarning, setPendingTaskWarning] = useState<{
-    targetStage: WorkflowStage;
-    incompleteTaskCount: number;
-    pendingTaskTitle: string;
-  } | null>(null);
+  const [handoffTarget, setHandoffTarget] = useState<string | undefined>();
 
   // Reassignment Modal State
   const [isReassignModalOpen, setIsReassignModalOpen] = useState(false);
-  const [newAssigneeId, setNewAssigneeId] = useState('');
-  const [reassignNotes, setReassignNotes] = useState('');
-  const [isReassigning, setIsReassigning] = useState(false);
 
   // Quick Task Creation Modal
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -151,89 +141,21 @@ export default function CaseDetailPage() {
   if (!caseData) return null;
 
   // Active stages sorted by display order
-  const activeStages = [...stages].sort((a, b) => a.display_order - b.display_order);
+  const activeStages = stages.filter((stage) => stage.status_code).sort((a, b) => a.display_order - b.display_order);
   const currentStageIndex = activeStages.findIndex((s) => s.id === caseData.current_stage_id);
   const currentStage = activeStages[currentStageIndex] || caseData.current_stage;
 
   const previousStage = currentStageIndex > 0 ? activeStages[currentStageIndex - 1] : null;
   const nextStage = currentStageIndex >= 0 && currentStageIndex < activeStages.length - 1 ? activeStages[currentStageIndex + 1] : null;
 
-  // Check if current stage has pending tasks
-  const currentStagePendingTasks = tasks.filter(
-    (t) => (t.stage_id === currentStage?.id || !t.stage_id) && t.status !== 'completed' && t.status !== 'cancelled'
-  );
-
-  // Stage Transition Handler
-  const executeStageTransition = async (targetStage: WorkflowStage, assignedTo?: string, notes?: string) => {
-    if (!user) return;
-    setIsTransitioning(true);
-    try {
-      await transitionCaseStage(supabase, {
-        caseId,
-        targetStage,
-        userId: user.id,
-        assignedTo,
-        notes,
-        currentStageName: currentStage?.name,
-      });
-
-      toast(`Case successfully moved to stage "${targetStage.name}"`, 'success');
-      setIsChangeStageModalOpen(false);
-      setPendingTaskWarning(null);
-      await fetchAllData();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Stage transition failed';
-      toast(msg, 'error');
-    } finally {
-      setIsTransitioning(false);
-    }
-  };
-
-  // Attempt transition with condition check
-  const handleAttemptTransition = (targetStage: WorkflowStage) => {
-    if (currentStagePendingTasks.length > 0 && targetStage.display_order > (currentStage?.display_order || 0)) {
-      setPendingTaskWarning({
-        targetStage,
-        incompleteTaskCount: currentStagePendingTasks.length,
-        pendingTaskTitle: currentStagePendingTasks[0].title,
-      });
-      return;
-    }
-    executeStageTransition(targetStage);
-  };
-
-  // Open Stage Change Modal
   const handleOpenChangeStageModal = (target?: WorkflowStage) => {
-    const selected = target || nextStage || activeStages[0];
-    setTargetStageForModal(selected);
-    setModalAssignedTo(selected?.default_assigned_employee_id || caseData.assigned_to || '');
-    setModalNotes('');
-    setIsChangeStageModalOpen(true);
+    setHandoffTarget(target?.status_code || undefined);
+    setIsReassignModalOpen(true);
   };
-
-  // Status Change Handler
-  const handleStatusChange = async (newStatus: CaseStatus) => {
-    try {
-      const { error } = await supabase
-        .from('cases')
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
-        .eq('id', caseId);
-
-      if (error) throw error;
-
-      await supabase.from('activities').insert({
-        case_id: caseId,
-        customer_id: caseData.customer_id,
-        user_id: user?.id,
-        action: 'status_change',
-        description: `Case ${caseData.case_number} status changed to "${capitalize(newStatus)}"`,
-      });
-
-      toast(`Status updated to ${capitalize(newStatus)}`, 'success');
-      fetchAllData();
-    } catch {
-      toast('Failed to update status', 'error');
-    }
+  const handleAttemptTransition = handleOpenChangeStageModal;
+  const handleStatusChange = (status: CaseStatus) => {
+    setHandoffTarget(status);
+    setIsReassignModalOpen(true);
   };
 
   // Toggle Task Completion
@@ -289,24 +211,6 @@ export default function CaseDetailPage() {
     }
   };
 
-  // Reassign Case Handler
-  const handleReassign = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newAssigneeId || !user) return;
-    setIsReassigning(true);
-    try {
-      await reassignCase(supabase, caseId, newAssigneeId, user.id, reassignNotes.trim() || undefined);
-      toast('Case successfully reassigned', 'success');
-      setIsReassignModalOpen(false);
-      fetchAllData();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to reassign case';
-      toast(msg, 'error');
-    } finally {
-      setIsReassigning(false);
-    }
-  };
-
   return (
     <div className="space-y-6 max-w-7xl">
       {/* Header Bar */}
@@ -324,18 +228,15 @@ export default function CaseDetailPage() {
 
               {/* Status Selector Dropdown */}
               <select
-                value={caseData.status}
+                value={normalizeCaseStatus(caseData.status)}
                 onChange={(e) => handleStatusChange(e.target.value as CaseStatus)}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold focus:outline-none cursor-pointer ${getStatusColor(
                   caseData.status
                 )}`}
               >
-                <option value="new">New</option>
-                <option value="in_progress">In Progress</option>
-                <option value="waiting">Waiting</option>
-                <option value="blocked">Blocked</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
+                {getCaseStatusOptions(caseData.status).map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
 
               <span
@@ -395,7 +296,8 @@ export default function CaseDetailPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <CasePdfButton caseId={caseId} />
           <Button variant="secondary" onClick={() => setIsFormOpen(true)}>
             <Pencil className="h-4 w-4" />
             Edit Case
@@ -421,12 +323,11 @@ export default function CaseDetailPage() {
 
           {/* Quick Stage Controls */}
           <div className="flex items-center gap-2">
-            {previousStage && (
+            {previousStage && (role === 'owner' || role === 'manager') && (
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={() => handleAttemptTransition(previousStage)}
-                isLoading={isTransitioning}
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 Move Back
@@ -437,9 +338,8 @@ export default function CaseDetailPage() {
               <Button
                 size="sm"
                 onClick={() => handleAttemptTransition(nextStage)}
-                isLoading={isTransitioning}
               >
-                Move to Next Stage
+                Complete & Handoff
                 <ArrowRight className="h-3.5 w-3.5" />
               </Button>
             )}
@@ -505,6 +405,8 @@ export default function CaseDetailPage() {
         </div>
       </div>
 
+      <CaseFlagControl caseData={caseData} onSuccess={fetchAllData} />
+
       {/* Main Grid: Details & Side Panels */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Case Overview & Employee Assignment */}
@@ -515,19 +417,10 @@ export default function CaseDetailPage() {
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                 Assigned Employee & SLA
               </h3>
-              {isOwnerOrManager && (
-                <button
-                  onClick={() => {
-                    setNewAssigneeId(caseData.assigned_to || '');
-                    setReassignNotes('');
-                    setIsReassignModalOpen(true);
-                  }}
-                  className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 font-medium cursor-pointer"
-                >
-                  <UserPlus className="h-3.5 w-3.5" />
-                  Reassign
-                </button>
-              )}
+              <Button size="sm" variant="secondary" onClick={() => handleOpenChangeStageModal()}>
+                <UserPlus className="h-3.5 w-3.5" />
+                Complete & Handoff
+              </Button>
             </div>
 
             <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-800/40 border border-slate-800">
@@ -836,94 +729,7 @@ export default function CaseDetailPage() {
         </div>
       </div>
 
-      {/* CHANGE STAGE MODAL */}
-      <Modal
-        isOpen={isChangeStageModalOpen}
-        onClose={() => setIsChangeStageModalOpen(false)}
-        title="Transition Case Stage"
-      >
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">Target Stage</label>
-            <select
-              value={targetStageForModal?.id || ''}
-              onChange={(e) => {
-                const selected = activeStages.find((s) => s.id === e.target.value);
-                if (selected) {
-                  setTargetStageForModal(selected);
-                  setModalAssignedTo(selected.default_assigned_employee_id || caseData.assigned_to || '');
-                }
-              }}
-              className="w-full rounded-lg border border-slate-800 bg-slate-900/50 p-2.5 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-            >
-              {activeStages.map((s) => (
-                <option key={s.id} value={s.id}>
-                  Stage {s.display_order}: {s.name} (SLA: {s.sla_days} days)
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">Assigned Employee</label>
-            <select
-              value={modalAssignedTo}
-              onChange={(e) => setModalAssignedTo(e.target.value)}
-              className="w-full rounded-lg border border-slate-800 bg-slate-900/50 p-2.5 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-            >
-              <option value="">Keep Unassigned</option>
-              {employees.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.full_name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">Transition Notes (Optional)</label>
-            <textarea
-              value={modalNotes}
-              onChange={(e) => setModalNotes(e.target.value)}
-              placeholder="Add notes about why the stage is being changed..."
-              rows={3}
-              className="w-full rounded-lg border border-slate-800 bg-slate-900/50 p-3 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-            />
-          </div>
-
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
-            <Button variant="secondary" onClick={() => setIsChangeStageModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (targetStageForModal) {
-                  executeStageTransition(targetStageForModal, modalAssignedTo, modalNotes);
-                }
-              }}
-              isLoading={isTransitioning}
-            >
-              Confirm Transition
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* PENDING TASK WARNING CONFIRMATION */}
-      <ConfirmDialog
-        isOpen={!!pendingTaskWarning}
-        onClose={() => setPendingTaskWarning(null)}
-        onConfirm={() => {
-          if (pendingTaskWarning) {
-            executeStageTransition(pendingTaskWarning.targetStage);
-          }
-        }}
-        title="Incomplete Stage Tasks Warning"
-        message={`The current stage has ${pendingTaskWarning?.incompleteTaskCount} incomplete task(s) (e.g. "${pendingTaskWarning?.pendingTaskTitle}"). Are you sure you want to move to "${pendingTaskWarning?.targetStage.name}" anyway?`}
-        confirmText="Proceed Anyway"
-      />
-
-      {/* QUICK TASK MODAL */}
+      {/* CREATE TASK MODAL */}
       <Modal isOpen={isTaskModalOpen} onClose={() => setIsTaskModalOpen(false)} title="Add Task to Case">
         <form onSubmit={handleCreateTask} className="space-y-4">
           <div>
@@ -966,64 +772,15 @@ export default function CaseDetailPage() {
         </form>
       </Modal>
 
-      {/* REASSIGN CASE MODAL */}
-      <Modal
-        isOpen={isReassignModalOpen}
-        onClose={() => setIsReassignModalOpen(false)}
-        title={`Reassign Case: ${caseData.case_number}`}
-        size="md"
-      >
-        <form onSubmit={handleReassign} className="space-y-4">
-          <p className="text-xs text-slate-400">
-            Select a new staff member to take over responsibility for this case. Active pending tasks will be transferred and the new employee will be notified immediately.
-          </p>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">New Assignee *</label>
-            <select
-              value={newAssigneeId}
-              onChange={(e) => setNewAssigneeId(e.target.value)}
-              className="w-full rounded-lg border border-slate-800 bg-slate-900/50 p-2.5 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-              required
-            >
-              <option value="">Select Employee</option>
-              {employees.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.full_name} ({emp.email})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">
-              Handover Notes / Instructions (Optional)
-            </label>
-            <textarea
-              value={reassignNotes}
-              onChange={(e) => setReassignNotes(e.target.value)}
-              placeholder="e.g. Please follow up on the pending bank verification document today."
-              rows={3}
-              className="w-full rounded-lg border border-slate-800 bg-slate-900/50 p-2.5 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-            />
-          </div>
-
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
-            <Button
-              variant="secondary"
-              type="button"
-              onClick={() => setIsReassignModalOpen(false)}
-              disabled={isReassigning}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" isLoading={isReassigning} disabled={!newAssigneeId}>
-              Confirm Reassignment
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
+      {isReassignModalOpen && (
+        <CaseHandoffModal
+          key={caseData.id}
+          caseData={caseData}
+          initialStatus={handoffTarget}
+          onClose={() => setIsReassignModalOpen(false)}
+          onSuccess={fetchAllData}
+        />
+      )}
       {/* EDIT CASE FORM */}
       <CaseForm
         isOpen={isFormOpen}

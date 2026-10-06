@@ -30,6 +30,7 @@ const navItems = [
   { href: '/cases', label: 'Cases', icon: Briefcase },
   { href: '/buildings', label: 'Buildings', icon: Building2 },
   { href: '/customers', label: 'Customers', icon: Users },
+  { href: '/work-queue', label: 'My Work Queue', icon: ListTodo },
   { href: '/tasks', label: 'My Tasks', icon: ListTodo },
   { href: '/documents', label: 'Documents', icon: FileText },
   { href: '/employees', label: 'Employees', icon: UserCog },

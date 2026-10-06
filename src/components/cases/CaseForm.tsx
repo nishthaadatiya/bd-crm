@@ -1,5 +1,7 @@
 'use client';
 
+import { getCaseStatusOptions, normalizeCaseStatus } from '@/lib/case-status';
+
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -63,7 +65,7 @@ export default function CaseForm({
   caseData,
   preselectedCustomerId,
 }: CaseFormProps) {
-  const { user, role } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
   const supabase = createClient();
   const isEditing = !!caseData;
@@ -85,7 +87,7 @@ export default function CaseForm({
     customer_id: caseData?.customer_id ?? preselectedCustomerId ?? '',
     building_id: caseData?.building_id ?? '',
     case_type: caseData?.case_type ?? 'home_loan',
-    status: caseData?.status ?? 'new',
+    status: normalizeCaseStatus(caseData?.status ?? 'lead') as CaseFormData['status'],
     priority: caseData?.priority ?? 'medium',
     current_stage_id: caseData?.current_stage_id ?? '',
     assigned_to: caseData?.assigned_to ?? '',
@@ -144,7 +146,7 @@ export default function CaseForm({
         customer_id: caseData?.customer_id ?? preselectedCustomerId ?? '',
         building_id: caseData?.building_id ?? '',
         case_type: caseData?.case_type ?? 'home_loan',
-        status: caseData?.status ?? 'new',
+        status: normalizeCaseStatus(caseData?.status ?? 'lead') as CaseFormData['status'],
         priority: caseData?.priority ?? 'medium',
         current_stage_id: caseData?.current_stage_id ?? '',
         assigned_to: caseData?.assigned_to ?? '',
@@ -220,19 +222,12 @@ export default function CaseForm({
         });
       }
 
-      const selectedStage = stages.find((s) => s.id === formData.current_stage_id);
+      const selectedStage = stages.find((s) => s.status_code === formData.status) || stages.find((s) => s.id === formData.current_stage_id);
       const slaDays = selectedStage?.sla_days || 3;
       const now = new Date();
       const stageDueDate = new Date(now.getTime() + slaDays * 24 * 60 * 60 * 1000).toISOString();
 
-      // Employees cannot assign cases to others
-      let finalAssignedTo: string | null = formData.assigned_to || null;
-      if (role === 'employee' && !isEditing) {
-        finalAssignedTo = user?.id || null;
-      } else if (!finalAssignedTo) {
-        finalAssignedTo = selectedStage?.default_assigned_employee_id || user?.id || null;
-      }
-
+      const finalAssignedTo = formData.assigned_to || selectedStage?.default_assigned_employee_id || user?.id || null;
       // Convert numeric fields properly
       const loanAmountNum = formData.loan_amount ? parseFloat(formData.loan_amount) : null;
       const propertyValueNum = formData.property_value ? parseFloat(formData.property_value) : null;
@@ -245,7 +240,7 @@ export default function CaseForm({
         case_type: formData.case_type || 'home_loan',
         status: formData.status,
         priority: formData.priority,
-        current_stage_id: formData.current_stage_id || null,
+        current_stage_id: selectedStage?.id || null,
         assigned_to: finalAssignedTo,
         description: formData.description.trim() || null,
         notes: formData.notes.trim() || null,
@@ -261,7 +256,11 @@ export default function CaseForm({
       };
 
       if (isEditing) {
-        const { error } = await supabase.from('cases').update(payload).eq('id', caseData.id);
+        const details: Partial<typeof payload> = { ...payload };
+        delete details.status;
+        delete details.assigned_to;
+        delete details.current_stage_id;
+        const { error } = await supabase.from('cases').update(details).eq('id', caseData.id);
 
         if (error) throw error;
 
@@ -653,8 +652,8 @@ export default function CaseForm({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
-              id="current_stage_id"
-              label="Starting Workflow Stage"
+              id="current_stage_id" disabled
+              label="Workflow stage (use Complete & Handoff to change)"
               value={formData.current_stage_id}
               onChange={(e) => updateField('current_stage_id', e.target.value)}
               placeholder="Select starting stage"
@@ -662,8 +661,8 @@ export default function CaseForm({
             />
 
             <Select
-              id="assigned_to"
-              label={role === 'employee' ? 'Assigned To (Locked)' : 'Responsible Employee *'}
+              id="assigned_to" disabled={isEditing}
+              label="Responsible Employee *"
               value={formData.assigned_to}
               onChange={(e) => updateField('assigned_to', e.target.value)}
               placeholder="Choose assigned operational employee"
@@ -671,7 +670,6 @@ export default function CaseForm({
                 value: e.id,
                 label: `${e.full_name} (${(e as any).role?.name || 'Staff'})`,
               }))}
-              disabled={role === 'employee'}
             />
           </div>
 
@@ -690,17 +688,11 @@ export default function CaseForm({
             />
 
             <Select
-              id="status"
+              id="status" disabled
               label="Status"
               value={formData.status}
               onChange={(e) => updateField('status', e.target.value)}
-              options={[
-                { value: 'new', label: 'New' },
-                { value: 'in_progress', label: 'In Progress' },
-                { value: 'waiting', label: 'Waiting for Docs' },
-                { value: 'blocked', label: 'Blocked' },
-                { value: 'completed', label: 'Completed' },
-              ]}
+              options={getCaseStatusOptions(caseData?.status)}
             />
 
             <Input

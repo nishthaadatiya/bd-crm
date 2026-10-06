@@ -54,6 +54,7 @@ export interface Building {
 
 export interface WorkflowStage {
   id: string;
+  status_code?: CaseStatus | null;
   name: string;
   description: string | null;
   display_order: number;
@@ -69,11 +70,21 @@ export interface WorkflowStage {
   default_employee?: Profile;
 }
 
-export type CaseStatus = 'new' | 'in_progress' | 'waiting' | 'blocked' | 'completed' | 'cancelled';
+export type CaseStatus =
+  | 'lead' | 'doc_collection' | 'doc_verification' | 'property_ips_processing'
+  | 'search' | 'valuation' | 'login' | 'sanction' | 'mortgage' | 'disbursement' | 'payout' | 'closed'
+  // Historical cases remain readable until explicitly updated.
+  | 'new' | 'in_progress' | 'waiting' | 'blocked' | 'completed' | 'cancelled';
 export type CasePriority = 'low' | 'medium' | 'high' | 'urgent';
 
 export interface Case {
   id: string;
+  work_flag?: 'none' | 'waiting' | 'blocked';
+  flag_reason?: string | null;
+  flag_owner_id?: string | null;
+  follow_up_date?: string | null;
+  handoff_at?: string | null;
+  handoff_accepted_at?: string | null;
   case_number: string;
   customer_id: string;
   building_id: string | null;

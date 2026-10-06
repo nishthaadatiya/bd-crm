@@ -1,5 +1,7 @@
 'use client';
 
+import { isActiveCase, getCaseStatusLabel } from '@/lib/case-status';
+
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -152,15 +154,15 @@ export default function OperationalDashboardPage() {
   const tasksCompleted = tasks.filter((t) => t.status === 'completed');
 
   const myActiveCases = myCases.filter(
-    (c) => c.status === 'new' || c.status === 'in_progress'
+    (c) => isActiveCase(c.status)
   );
 
   const casesWaitingForDocs = myCases.filter(
-    (c) => c.status === 'waiting'
+    (c) => c.work_flag === 'waiting' || c.status === 'waiting'
   );
 
   const casesBlocked = myCases.filter(
-    (c) => c.status === 'blocked'
+    (c) => c.work_flag === 'blocked' || c.status === 'blocked'
   );
 
   // Filter based on active tab & search query
@@ -228,6 +230,8 @@ export default function OperationalDashboardPage() {
           </p>
         </div>
       </div>
+
+      <Link href="/work-queue" className="block rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4 text-indigo-300">Open My Work Queue — new handoffs, due today and overdue work →</Link>
 
       {/* Operational KPI Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -638,7 +642,7 @@ export default function OperationalDashboardPage() {
                             c.status
                           )}`}
                         >
-                          {capitalize(c.status)}
+                          {getCaseStatusLabel(c.status)}
                         </span>
                       </td>
                       <td className="px-5 py-3.5 text-right">

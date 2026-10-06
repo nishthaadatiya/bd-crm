@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS cases (
   case_number TEXT NOT NULL UNIQUE,
   customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   case_type TEXT NOT NULL DEFAULT 'general',
-  status TEXT NOT NULL DEFAULT 'new',
+  status TEXT NOT NULL DEFAULT 'lead',
   priority TEXT NOT NULL DEFAULT 'medium',
   current_stage_id UUID REFERENCES workflow_stages(id),
   assigned_to UUID REFERENCES profiles(id),
